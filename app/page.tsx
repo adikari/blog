@@ -1,4 +1,4 @@
-import { allPosts } from "@/.contentlayer/generated";
+import { allPosts } from "contentlayer/generated";
 import Link from "next/link";
 import format from "date-fns/format";
 import compareDesc from "date-fns/compareDesc";
