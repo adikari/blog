@@ -1,0 +1,182 @@
+---
+title: Android clean architecture
+description: Use clean architecture in android application
+date: "2017-11-18"
+---
+
+One of the primary goal of building software is to meet the business goal. Weather it be a simple shopping list application or a large banking application, they exist to solve a problem. As the software grows in functionality it need to be able to cope with changing business requirements. Well written software can accommodate changes quickly without affecting other parts of the application. With the growth of software many design patterns and software architectures have emerged. Whatever the software design architecture is the end goal here it to build robust software that can provide the business solution while being maintainable and easily testable. The goal here is to create application that not only satisfy the business requirement but also is robust, maintainable, testable and flexible enough to adapt to growing changes.
+
+![](https://cdn-images-1.medium.com/max/800/0*Zlhkm_0QUY5Gv9I3.png)
+
+The idea of clean architecture is quite simple and encourages to build software that is 1) Independent of frameworks, 2) Testable, 3) Independent of database, 4) Independent of User interface and 5) Easily testable. Clean architecture can be visualized by 4 layered onion shaped diagram, each layer representing a component of the software. The innermost layer is data specific and deals with getting the data required by the software to run. The layer above it is where all the business logic is. This layer gets the data from the data layer and performs necessary logic. Presentation layer acts as the bridge between UI layer and business layer. UI layer is where all the framework specific stuff happens. It has all the android components, fragments and deals with building the user interface and rendering UI components. The important rule here is the outer layer is dependent on the layer right below it and not the other way around.
+
+The software is broken down into 3 tiers 1) data layer, 2) domain layer and 3) presentation layer. Data layer deal with where the data comes from and presentation layer deals with how the user interface is presented. The business layer in middle is unaware of how or where the data comes from and how the user interface is rendered. This allows us to keep the business logic independent of data and presentation. Data mappers are used to pass the data between layers.
+
+![](https://cdn-images-1.medium.com/max/800/0*tq_2WXoyOzlkhBM8.png)
+
+### Implementation
+
+As the core of the software is the business requirement it is fulfilling, the project is structured as components that define what business requirement it fulfills. One of the business requirement in the example movie application is to display the upcoming movies list. Code sample below demonstrates how this is achieved using clean architecture. All the required code for this functionality is added in a component called `upcomingmovies`.
+
+**Business layer**
+
+```markup--code markup--pre-code
+/// Movie.java
+/// Representation of Movie in business layer
+public class Movie {
+  private int id;
+  private String title;
+  private double rating;
+}
+
+/// MovieRepository.java
+/// Our business rule will depend on this contract for data
+public interface MovieRepository {
+  List<Movie> getNowPlayingMovies();
+}
+
+/// Business logic to get the upcoming movies
+public class GetUpcomingMoviesUseCase {
+
+  private MovieRepository repository;
+
+  GetUpcomingMoviesUseCase(MovieRepository repository) {
+    this.repository = repository;
+  }
+
+  public List<Movie> executeUseCase() {
+    return repository.getNowPlayingMovies();
+  }
+}
+```
+
+In this sample code the `executeUseCase` is really simple. However in real world application the use case could be more complicated.
+
+**Data Layer**
+
+The data layer is where we retrieve the data from the storage. The storage can be anything or anywhere as long as it implements the `MovieRepository` through which business layer talks to the data layer.
+
+```markup--code markup--pre-code
+/// MovieEntity.java
+/// Representation of Movie in business layer
+/// This can be specific to where and how the data is stored
+public class MovieEntity {
+  private int id;
+  private String title;
+  private double rating;
+}
+
+/// MovieStore.java
+interface MovieStore {
+  List<MovieEntity> getNowPlayingMoviesFromStorage();
+}
+
+/// APIMovieStore.java
+public class APIMovieStore implements MovieStore {
+  public List<MovieEntity> getNowPlayingMoviesFromStorage() {
+    // get the movie list from internet
+  }
+}
+
+/// SQLMovieStore.java
+public class SQLMovieStore implements MovieStore {
+  public List<MovieEntity> getNowPlayingMoviesFromStorage() {
+    // get the movie list from SQL database
+  }
+}
+
+/// MovieDataRepository
+public class MovieDataRepository implements MovieRepository {
+
+  // this can either be SQLMovieStore or APIMovieStore
+  private MovieStore movieStore;
+
+  public List<Movie> getNowPlayingMovies() {
+    List<MovieEntity> movieEntityList = movieStore.getNowPlayingMoviesFromStorage();
+
+    // MoiveMapper transforms MovieEntity to Movie so it can be used in business layer
+    List<Movie> movieList = MovieMapper.transform(movieEntityList);
+
+    return movieList;
+  }
+}
+```
+
+The above sample code of data layer implements the `MovieRepository` from the domain layer. The `MovieDataRepository` gets the data from the `MovieDataStore`. We can see that where the data comes from does not really matter. In the above sample code, we can retrieve the data from `SQL` or from some web `API`. When the data is passed on to the business layer all it gets is the data it required. All the complexity of where and how the data comes from is encapsulated within the data layer. `MovieEntity` in mapped to `Movie` using a transformer before sending it to the business layer. Life of `Entity` object only reside within the data layer and never get out.
+
+**Presentation layer**
+
+Now that we have mechanism to get the data from the data layer and perform our business logic in the domain layer, its time to render this in the screen.
+
+```markup--code markup--pre-code
+/// MovieModel.java
+/// Representation of Movie in presentation layer
+public class MovieModel {
+  private int id;
+  private String title;
+  private double rating;
+}
+
+/// NowPlayingView.java
+/// Contract defined to force the view logic
+public interface NowPlayingView {
+  void renderNowPlayingMovies();
+}
+
+/// NowPlayingPresenter.java
+/// This should not have any framework related code
+public class NowPlayingMoviesPresenter {
+  private NowPlayingView view;
+  private GetNowPlayingUseCase usecase;
+
+  public NowPlayingMoviesPresenter(GetNowPlayingUseCase usecase) {
+    this.usecase = usecase;
+  }
+
+  void setView(NowPlayingView view) {
+    this.view = view;
+  }
+
+  void initialize() {
+    List<Movie> movies = usecase.executeUseCase();
+
+    /// Transform Movie to MovieModel
+    List<MovieModel> movieModelList = Mapper.transform(movies);
+
+    // ask the view to render movies
+    this.view.renderNowPlayingMovies(movieModelList);
+  }
+}
+
+/// NowPlayingFragment.java
+/// This view is specific to android
+public class NowPlayingFragment implements NowPlayingView {
+
+  @Inject NowPlayingPresenter presenter;
+
+  @override void onViewCreated(/*params*/) {
+    presenter.setView(this);
+    presenter.initialize();
+  }
+
+  @Override void renderNowPlayingMovies(List<MovieModel> movieModelList) {
+    // render the movieModelList in the view
+  }
+}
+```
+
+In the above sample code for presentation layer, `Presenter` has logic of talking with the business layer. It also talks with the `View` and passes data it requires. However it does not have any framework specific logic. So if in future the business requirement changes and we need to build a web application with same business requirement, we can simply create a new `NowPlayingView` for web which will display now playing movies in the browser.
+
+### Conclusion
+
+The amount of code to type for a non trivial application could be time consuming and not worth the hazel if we are absolutely sure that the requirements will not change. However for medium to large projects this architecture is highly recommended.I will soon write another post where we will update `UseCase` to use `Observables` from `RxJava`. Doing so will allow these use case to run on background thread without blocking the main thread. Google have recently released `Lifecycle` aware components, `ViewModel` and `LiveData` in the new android architecture components. It will be interesting to look into where these components will fit into the clean architecture.
+
+### Useful resources
+
+[Android Clean Architecture Github project](https://github.com/android10/Android-CleanArchitecture)
+
+[Architecturing android.. The clean way](http://fernandocejas.com/2014/09/03/architecting-android-the-clean-way/)
+
+[Clean Architecture Book](https://www.amazon.co.uk/Clean-Architecture-Craftsmans-Software-Structure/dp/0134494164)
+
+[Android and Architecture](https://android-developers.googleblog.com/2017/05/android-and-architecture.html)

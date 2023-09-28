@@ -1,0 +1,179 @@
+---
+title: Setting up Laravel with Docker - Part 3
+description: In previous posts of this series we setup Laravel application with docker and docker compose. This this final part of series, we add a utility script to simplify the deployment.
+date: "2018-01-13"
+---
+
+![](https://cdn-images-1.medium.com/max/800/0*hFd2o4BMiJi0vndV.)
+
+This is part 3 of the series of setting up [Laravel](https://laravel.io/) with docker post. In [part 1](https://subash.com.au/setting-up-laravel-with-docker-part-1/), we set up Laravel application using Dockerfile. In [part2](https://subash.com.au/setting-up-laravel-with-docker-part-2/), we improved on our initial to use [docker-compose](https://docs.docker.com/compose/). Instead of building the container from scratch, we used the official docker containers and put them together to have a working application. If you haven’t read part 2, I strongly suggest you to do so.
+
+If you work in a team and not everyone in the team are familiar with docker, it would be a steep learning curve for the team to use our containers. So, in this post we will improve on what we have done so far and add a small utility script to easily interact with our containers.
+
+### Creating the script
+
+In the root of your application (~/laravel) create a file called `container` and paste the following code in it. I will explain what the script does later in the post.
+
+```markup--code markup--pre-code u-paddingRight0 u-marginRight0
+#!/bin/bash -e
+
+SRC_DIR=~/laravel
+DOCKER="docker-compose run --rm -w /var/www/html app"
+
+function usage {
+  echo -e "Laravel Docker CLI - Tool to work with laravel docker container.\n"
+  echo -e "usage: dev [command]"
+  echo -e "   or: dev [command] [arguments]"
+  echo -e "   or: dev [docker_commands] [arguments]\n"
+  echo "Arguments:"
+  echo "    start        Start docker container"
+  echo "    stop         Stop docker container"
+  echo "    status       Check status of docker container"
+  echo "    ssh          SSH into the docker container."
+  echo "    composer     Run composer command in the docker container."
+  echo "    php          Run php cli in the docker container."
+  echo "    help         Display usage"
+}
+
+if [ $# -gt 0 ]; then
+  if [ "$1" == "ssh" ]; then
+    docker exec -it laravel_app_1 bash
+  elif [ "$1" == "start" ]; then
+    docker-compose up -d
+  elif [ "$1" == "stop" ]; then
+    docker-compose down
+  elif [ "$1" == "status" ]; then
+    docker-compose ps
+  elif [ "$1" == "php" ] || [ "$1" == "composer" ]; then
+    $DOCKER "$@"
+  elif [ "$1" == "help" ] || [ "$1" == "-h" ] || [ "$1" == "--help" ]; then
+    usage; exit
+  else
+    usage; exit
+  fi
+else
+  usage; exit
+fi
+```
+
+### Usage
+
+Give it a executable permissions by typing the following in your terminal.
+
+```markup--code markup--pre-code
+chmod +x container
+```
+
+Now we should be able to execute the script. In your terminal, execute the script by typing:
+
+```markup--code markup--pre-code
+./container -h
+```
+
+That will output the help for the script. The help message is whatever we are outputting from our `usage` function.
+
+```markup--code markup--pre-code
+Laravel Docker CLI - Tool to work with laravel docker container.
+
+usage: dev [command]
+   or: dev [command] [arguments]
+   or: dev [docker_commands] [arguments]
+
+Arguments:
+    start        Start docker container
+    stop         Stop docker container
+    status       Check status of docker container
+    ssh          SSH into the docker container.
+    composer     Run composer command in the docker container.
+    php          Run php cli in the docker container.
+    help         Display usage
+```
+
+Now you can interact with your php and composer without having to remember the docker commands.
+
+```markup--code markup--pre-code
+./container composer install
+./container php -v
+```
+
+### Explanation of script
+
+The shebang in the first line tells the interpreter that this is a bash script.
+
+```markup--code markup--pre-code
+#!/bin/bash -e
+```
+
+We then create some variables that we will be using later in the script.
+
+```markup--code markup--pre-code
+SRC_DIR=~/laravel
+DOCKER="docker-compose run --rm -w /var/www/html app"
+```
+
+As the name suggests, `usage` function prints out the usage information of the script. If the user types `./container -h`, this function will print this information in the console.
+
+```markup--code markup--pre-code
+function usage {
+  echo -e "Laravel Docker CLI - Tool to work with laravel docker container.\n"
+  echo -e "usage: dev [command]"
+  echo -e "   or: dev [command] [arguments]"
+  echo -e "   or: dev [docker_commands] [arguments]\n"
+  echo "Arguments:"
+  echo "    start        Start docker container"
+  echo "    stop         Stop docker container"
+  echo "    status       Check status of docker container"
+  echo "    ssh          SSH into the docker container."
+  echo "    composer     Run composer command in the docker container."
+  echo "    php          Run php cli in the docker container."
+  echo "    help         Display usage"
+}
+```
+
+We then check if the user passed any parameter when invoking the script. If no parameters were passed then usage will be outputted to the terminal.
+
+```markup--code markup--pre-code
+if [ $# -gt 0 ]; then
+   ...
+else
+   usage; exit;
+fi
+```
+
+If any parameters were passed while invoking the script, we check the value of passed parameters. If the parameter passed is `ssh` then we will invoke the command to ssh them into the container.
+
+```markup--code markup--pre-code
+if [ "$1" == "ssh" ]; then
+    docker exec -it laravel_app_1 bash
+```
+
+This is the core of the script and we perform tasks based on the given parameter. If the parameter given is `php` or `composer` then we invoke the given command inside the container.
+
+```markup--code markup--pre-code
+elif [ "$1" == "php" ] || [ "$1" == "composer" ]; then
+    $DOCKER "$@"
+```
+
+`"[email protected]"` here means all the parameters that were passed when invoking the `container` script. Lets say that user types following command in the console.
+
+```markup--code markup--pre-code
+./container php -v
+```
+
+Above command will be expanded to become following:
+
+```markup--code markup--pre-code
+docker-compose run --rm -w /var/www/html app php -v
+```
+
+The command will display the version of php installed in the container.
+
+### Conclusion
+
+Of course this is a very simple example, however you can extend the same idea to manage complex application using the similar scripts. Specially if you are working in a team then not everyone in your team will have to be familiar or remember these docker commands. Simply give them the scripts that can perform all necessary functionalities within the container.
+
+### Related posts
+
+[Setting up laravel with docker: Part 1](https://subash.com.au/setting-up-laravel-with-docker-part-1/)
+
+[Setting up laravel with docker: Part 2](https://subash.com.au/setting-up-laravel-with-docker-part-2/)

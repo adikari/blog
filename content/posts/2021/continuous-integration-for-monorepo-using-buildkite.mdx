@@ -1,0 +1,240 @@
+---
+title: How to Set Up Continuous Integration for Monorepo Using Buildkite
+description: In this post, we set up a continuous integration pipeline for monorepo using Buildkite, Github, and AWS then automate it using bash.
+date: "2021-03-23"
+---
+
+![](https://cdn-images-1.medium.com/max/800/1*b1RrQ2QHL6taF4AVCy560Q.jpeg)
+
+Monorepo is a single repository that holds all code and multiple projects in a single git repository. Monorepo setup is quite attractive to work with because of its flexibility and ability to manage various services and frontends in one single repository. It also eliminates the hassle of tracking changes in multiple repositories and updating dependencies as projects change.
+
+On the other hand, monorepo also comes with its challenges, specifically with Continuous Integration. As individual sub-projects within the monorepo changes, we need to identify which sub-projects changed to build and deploy the changed ones. This post presents a step by step guide to:
+
+1. Configure the Continuous Integration for monorepo in Bulidkite.
+2. Deploy Buildkite Agents to AWS EC2 instances with autoscaling.
+3. Configure Github to trigger Bulidkite CI pipelines.
+4. Configure Buildkite to trigger appropriate pipelines when sub-projects within a monorepo change.
+5. Automate all of the above using bash scripts.
+
+### Pre-requisites
+
+1. [**AWS**](https://aws.amazon.com/free/) account to deploy the Buildkite agents.
+2. Configure [**AWS CLI**](https://docs.aws.amazon.com/cli/latest/userguide/cli-chap-configure.html) to talk to AWS Account.
+3. [**Buildkite**](https://buildkite.com/) account to create continuous integration pipelines.
+4. [**Github**](https://github.com/) account to host the monorepo sourcecode.
+
+The complete source code is available in [**buildkite-monorepo**](https://github.com/adikari/buildkite-monorepo) in Github.
+
+### Overview of setup
+
+The Buildkite workflow consists of [Pipelines](https://buildkite.com/docs/pipelines) and Steps. The top-level containers for modeling and defining workflow are called Pipeline. Steps run individual tasks or commands.
+
+The following diagram lists the pipelines we are setting up, their associated triggers, and each step that the pipeline runs.
+
+![](https://cdn-images-1.medium.com/max/800/1*MVE8-HVD6JRbADm-MTuIwQ.png)Pipeline and triggers
+
+### Pull Request Workflow
+
+![Pull Request Workflow](https://cdn-images-1.medium.com/max/1200/1*e1AF2ysOAF-Dk3ARQbi6Yw.png)Pull Request Workflow
+
+The above diagram visualizes the workflow for the Pull Request pipeline. Creating a new Pull Request in Github triggers the `pull-request` pipeline in Buildkite. This pipeline then runs `git diff` to identify which folders (projects) within the monorepo changed. If it detects changes, then it will dynamically trigger the appropriate Pull Request pipeline defined for that project. Buildkite reports back the status of each pipeline back to [Github status check.](https://docs.github.com/en/free-pro-team@latest/github/collaborating-with-issues-and-pull-requests/about-status-checks)
+
+### Merge Workflow
+
+The Pull Request is merged when all status checks in Github pass. Merging Pull Request triggers the `merge` pipeline in Buildkite.
+
+![Merge Workflow](https://cdn-images-1.medium.com/max/1200/1*WbDiLQYy82JnKHuLZdouVA.png)Merge Workflow
+
+Similar to the previous pipeline, the merge pipeline identifies the projects that have changed and triggers the corresponding `deploy` pipeline for it. Deploy pipeline initially deploys changes to the staging environment. Once the deployment to staging is complete, production deployment is manually released.
+
+### Final project structure
+
+```
+.
+├── .buildkite
+│   ├── diff
+│   ├── merge.yml
+│   ├── pipelines
+│   │   ├── deploy.json
+│   │   ├── merge.json
+│   │   └── pull-request.json
+│   └── pull-request.yml
+├── bar-service
+│   ├── .buildkite
+│   │   ├── deploy.yml
+│   │   ├── merge.yml
+│   │   └── pull-request.yml
+│   └── bin
+│       └── deploy
+├── bin
+│   ├── create-pipeline
+│   ├── create-secrets-bucket
+│   ├── deploy-ci-stack
+│   └── stack-config
+└── foo-service
+    ├── .buildkite
+    │   ├── deploy.yml
+    │   ├── merge.yml
+    │   └── pull-request.yml
+    └── bin
+        └── deploy
+```
+
+### Set up project
+
+Create a new git project and push it to Github. Run the following commands in CLI.
+
+![](https://cdn-images-1.medium.com/max/800/1*XAjfZRH89eWlA7Plt7HaPQ.png)
+
+### Set up Buildkite infrastructure
+
+1. Create a bin directory with some executable scripts inside it.
+
+2\. Copy the following contents into `create-secrets-bucket`.
+
+Generate SSH Key and copy it to S3 bucket
+
+The above script creates an S3 bucket that is used to store the ssh keys. Buildkite uses this key to connect to the Github repo. The script also generates ssh key and sets its permission correctly.
+
+**Run the script**
+
+![](https://cdn-images-1.medium.com/max/800/1*8AnXxZJFHjXWK9qZC8k8Cw.png)running create-secrets-bucket script
+
+The script copies the generated public and private keys to `~/.ssh` the folder. These keys can be used later to ssh into the EC2 instance, running the Buildkite agent for debugging.
+
+Next, verify the bucket exists, and the keys are present in the new S3 bucket.
+
+![](https://cdn-images-1.medium.com/max/800/1*CWj3q2x4uMeLmgsAqOzVBQ.png)
+
+Navigate to [https://github.com/settings/keys](https://github.com/settings/keys), add a new SSK key, then paste the content of `id_rsa_buildkite.pub` .
+
+![](https://cdn-images-1.medium.com/max/800/1*0t-9bUdhTIPaLJmOVj1WzA.png)
+
+### Deploy AWS Elastic CI Cloudformation Stack
+
+Folks at Buildkite have created the [**Elastic CI Stack for AWS**](https://github.com/buildkite/elastic-ci-stack-for-aws) **,** which creates a private, autoscaling Buildkite Agent cluster in the AWS. Lets, deploy the infrastructure to our AWS Account.
+
+Create a new file `bin/deploy-ci-stack` and copy the content of the following script in it.
+
+You can get the \`BUILDKITE\_AGENT\_TOKEN\` from the **Agents** tab in Buildkite Console.
+
+![](https://cdn-images-1.medium.com/max/800/1*bP_WOPCOK3iJ6NNLPYQBOA.png)
+
+Next, create a new file called `bin/stack-config`. Configuration in this file overrides the Cloudformation parameters. The complete list of parameters is available in the [Cloudformation template](https://s3.amazonaws.com/buildkite-aws-stack/latest/aws-stack.yml) used by Elastic CI.
+
+On line 2, replace the bucket name with the bucket created earlier.
+
+Next, run the script in CLI to deploy the Cloudformation stack.
+
+The script will take some time to finish. Open up the AWS Cloudformation console to view the progress.
+
+![](https://cdn-images-1.medium.com/max/800/1*17sQafKmHFsNhZ_0T9IhJw.png)![](https://cdn-images-1.medium.com/max/800/1*7ygh4ZA04-SZYN0WZOqNPg.png)
+
+The Cloudformation stack would have created an Autoscaling Group that Buildkite will use to spawn up EC2 instances. The Buildkite Agents and the builds run inside those EC2 instances.
+
+![](https://cdn-images-1.medium.com/max/800/1*L4eC59PoA52X2nhaOArQUw.png)
+
+### Create build pipelines in Bulidkite
+
+At this point, we have the infrastructure required to run Buildkite ready. Next, we configure Buildkite and create some Pipelines.
+
+Create API Access Token at [https://buildkite.com/user/api-access-tokens](https://buildkite.com/user/api-access-tokens) and set the scope to `write_builds`, `read_pipelines` and `write_pipelines`. More information about agent tokens is in this [document](https://buildkite.com/docs/agent/v3/tokens).
+
+Ensure the `BUILDKITE_API_TOKEN` is set on the environment. Either use [dotenv](https://www.npmjs.com/package/dotenv) or export it to the environment before running the script.
+
+Copy the contents of the following script to `bin/create-pipeline`. Pipelines can be created manually in Buildkite Console, but it is always better to automate and create reproducible infrastructure.
+
+Make the script executable by setting the correct permission (chmod +x). Run `./bin/create-pipeline -h` in CLI for help.
+
+![](https://cdn-images-1.medium.com/max/800/1*e_oJvruTvg2OYFDR4R3JMg.png)
+
+The script uses [Buildkite REST API](https://buildkite.com/docs/apis/rest-api) to create the pipelines with the given configuration. The script uses a pipeline configuration defined as `json` document and posts it to the REST API. Pipeline configurations live in `.bulidkite/pipelines` folder.
+
+To define the configuration for `pull-request` pipeline, create `.buildkite/pipelines/pull-request.json` with the following content.
+
+Next, create `./buildkite/pipelines/merge.json` with the following content.
+
+Finally, create `.buildkite/pipelines/deploy.yml` with the following content.
+
+Now, run the `./bin/create-pipeline` command to create a pull-request pipeline.
+
+![](https://cdn-images-1.medium.com/max/800/1*rBqJv_WCmt3jl5V2jIOk3A.png)
+
+Copy the `Webhook url` from the console output and create a webhook integration in Github. The webhook URL is available in pipeline settings in the Buildkite console if needed in the future. We need to configure webhook only for `pull-request` and `merge` pipeline. All other pipelines are triggered dynamically.
+
+Navigate to the Github repository `Settings > Webhooks` and add a webhook. Select `Just the push event` then add webhook. Repeat this for both pipelines.
+
+![](https://cdn-images-1.medium.com/max/800/1*oBPAb0ZYFzR6RqAFhCtz-g.png)
+
+Now in Buildkite Console, there should be two newly created pipelines. 🎉
+
+![](https://cdn-images-1.medium.com/max/800/1*RZFMo8T41CwARMnMrN4gDg.png)
+
+Next, add Github integration to allow Buildkite to send status updates to Github. The integration is only required to be set up once per account. It is available at `Setting > Integrations > Github` in Buildkite Console.
+
+![](https://cdn-images-1.medium.com/max/800/1*f5Zd8jSdA0NRhrGIrCjCCQ.png)
+
+Next, create the remaining pipelines. These pipelines will be dynamically triggered by `pull-request` and `merge` pipelines, so we do not need to create Github integration.
+
+![](https://cdn-images-1.medium.com/max/800/1*a9syIVilPFQaTNaP16BmUw.png)
+
+The Buildkite Console should now have all the pipelines listed. 🥳
+
+![](https://cdn-images-1.medium.com/max/800/1*rclucX7ddwlU4ou0vAFX0g.png)
+
+### Set up Buildkite Steps
+
+Now that the pipelines are ready configure steps to run for each pipeline.
+
+Add the following script in `.buildkite/diff`. This script diffs between all the files changed in a commit against the master branch. The output of the script is used to trigger respective pipelines dynamically.
+
+Change the permission of the script to make it executable.
+
+Create a new file `.buildkite/pullrequest.yml` and add the following step configuration. We use the [buildkite-monorepo-diff](https://github.com/chronotc/monorepo-diff-buildkite-plugin) plugin to run the `diff` script and automatically upload and trigger the respective pipelines.
+
+Now create the configuration for the merge pipeline by adding the following content in `.buildkite/merge.yml`.
+
+At this point, we have configured the topmost level `pull-request` and `merge` pipelines. Now we need to configure individual pipelines for each service.
+
+Configure pipelines for `foo-service` first. Create `foo-service/.buildkite/pull-request.yml` with the following content. When the `pull-request` pipeline for foo service runs, specify `lint` and `test` commands to run. The `command` option can also trigger other scripts.
+
+Next setup merge pipeline for foo service by adding following content in `foo-service/.buildkite/merge.yml`.
+
+When the `foo-service-merge` pipeline runs, here is what happens:
+
+1. The pipeline runs the sanity check.
+2. Then `foo-deploy` pipeline is dynamically triggered. We pass the `STAGE` environment to identify which environment to run the deployment against.
+3. Once the deployment to staging is complete, the pipeline is blocked and the following pipeline is not triggered automatically. The pipeline can be resumed by pressing the “Release to Production” button.
+4. Unblocking the pipeline triggers `foo-deploy` pipeline again, but this time with `production` stage.
+
+Finally, add configuration for `foo-deploy` pipeline by adding `foo-service/.buildkite/deploy.yml`. In deploy configuration, we trigger a bash script and pass the `STAGE` variable which was received from `foo-service-merge` pipeline.
+
+Now, create the deploy script `foo-service/bin/deploy` and add the following content.
+
+Make the deploy script executable.
+
+The pipeline and steps configuration for `foo-service` is complete. Repeat all the above steps above to configure pipelines for `bar service`.
+
+### Test the overall workflow
+
+We have configured Buildkite, Github and set up the appropriate infrastructure to run the builds. Next, test the entire workflow and see it in action.
+
+To test the workflow, start by creating a new branch and modify some file in `foo-service`. Push the changes to Github and create a Pull Request.
+
+![](https://cdn-images-1.medium.com/max/800/1*08wpUhllksniN7J5NSy6IA.png)
+
+Pushing changes to Github should trigger the `pull-request` pipeline in Buildkite, which then triggers the `foo-service-pull-request` pipeline. Github should report the status in Github checks. Github branch protection can be enabled to require the checks to pass before merging the Pull Request.
+
+![](https://cdn-images-1.medium.com/max/800/1*Ivvcpqm5DGgXzbbcKPy21A.png)
+
+Once all the checks have passed in Github, merge the Pull Request. This merge will trigger the `merge` pipeline in Buildkite.
+
+![](https://cdn-images-1.medium.com/max/800/1*LZ1BwAc86_jpxveapADxmQ.png)
+
+The changes in foo service are detected, and `foo-service-merge` pipeline is triggered. The pipeline will eventually be blocked when the `foo-service-deploy` runs against the staging environment. Unblock the pipeline by manually clicking the `Release to Production` button to run deployment against production.
+
+![](https://cdn-images-1.medium.com/max/800/1*h7jOA9XxK62V-vpxWkn1zA.png)
+
+### Summary
+
+In this post, we set up a continuous integration pipeline for monorepo using Buildkite, Github, and AWS. The pipeline gets our code from the development machine to staging, then to production. The build agents and steps run in autoscaled AWS EC2 instances. We also created a bunch of bash scripts to create easily reproducible versions of this setup. As an improvement to the current design, consider using the [buildkite-docker-compose-plugin](https://github.com/buildkite-plugins/docker-compose-buildkite-plugin) to isolate the builds in Docker containers.

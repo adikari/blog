@@ -1,0 +1,45 @@
+---
+title: Resume bash script after reboot
+description: Quick technique you can use to resume bash script after system reboot.
+date: "2017-12-11"
+---
+
+I often write bash scripts to automate common tasks in my projects. Often the script makes changes that require a reboot. And when the machine finishes rebooting the script needs to resume from where it left.
+
+Following script creates a temporary file that we use as a flag in the script to check if the script is resuming from a reboot. We also temporarily update the .bashrc or .zshrc to trigger the script automatically after reboot. When the script resumes, we remove the temporary file and the extra line we added in the `bashrc` or `zshrc`.
+
+```
+# filename: reload_bash_shell.sh
+
+# check if the reboot flag file exists. 
+# We created this file before rebooting.
+if [ ! -f /var/run/resume-after-reboot ]; then
+  echo "running script for the first time.."
+  
+  # run your scripts here
+
+  # Preparation for reboot
+  script="bash /reload_bash_shell.sh"
+  
+  # add this script to zsh so it gets triggered immediately after reboot
+  # change it to .bashrc if using bash shell
+  echo "$script" >> ~/.zshrc 
+  
+  # create a flag file to check if we are resuming from reboot.
+  sudo touch /var/run/resume-after-reboot
+  
+  echo "rebooting.."
+  # reboot here
+  
+else 
+  echo "resuming script after reboot.."
+  
+  # Remove the line that we added in zshrc
+  sed -i '/bash/d' ~/.zshrc 
+  
+  # remove the temporary file that we created to check for reboot
+  sudo rm -f /var/run/resume-after-reboot
+
+  # continue with rest of the script
+fi
+```

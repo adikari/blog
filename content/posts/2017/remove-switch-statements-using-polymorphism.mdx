@@ -1,0 +1,159 @@
+---
+title: How to remove switch statements with polymorphism
+description: In this post we will use polymorphism to remove switch statements. Inappropriately using switch statements is a sign of code smell. 
+date: "2017-12-19"
+---
+
+### Remove switch statements using polymorphism
+
+![](https://cdn-images-1.medium.com/max/800/0*QJGgCcckQ8BcHpsZ.)
+
+In this post we will use polymorphism to remove switch statements. Inappropriately using switch statements is a sign of code smell. [Robert Martin](https://en.wikipedia.org/wiki/Robert_C._Martin) in his book [Clean Code](https://www.amazon.com/Clean-Code-Handbook-Software-Craftsmanship/dp/0132350882) says that he limits himself to one switch statement per object type.
+
+We will use example of a `Customer` class. Initially we will use switch statements to implement the methods of the class. Then we will use polymorphism to refactor it and improve the code structure.
+
+```markup--code markup--pre-code
+public class Customer {
+
+  public enum Membership {
+  	Bronze, Silver, Gold
+  }
+
+  public Membership membership;
+
+  public Customer(Membership membership) {
+  	this.membership = membership;
+  }
+
+  public void setMembership(Membership membership) {
+    this.membership = membership;
+  }
+
+  public Membership getMembership() {
+    return membership;
+  }
+
+  public double getMonthlyPrice() {
+    switch(membership) {
+    	case Bronze:
+      		return 10;
+      	case Silver:
+      		return 20;
+      	case Gold:
+      		return 30;
+      	default:
+      		throw new IllegalArgumentException("Invalid membership!!");
+    }
+  }
+}
+```
+
+Each `Customer` has a membership type. `getMonthlyPrice` method calculates the monthly membership cost of `Customer` based on their membership level. So far its all good. However we have been asked to add functionality to calculate points earned by the customer. Customers earn points based on their membership level and the amount they spent.
+
+```markup--code markup--pre-code
+public double getPointsEarned(double amountSpent) {
+  switch(membership) {
+    case Bronze:
+    	return amountSpent * 1;
+    case Silver:
+    	return amountSpent * 2;
+    case Gold:
+    	return amountSpent * 3;
+    default:
+    	throw new IllegalArgumentException("Invalid membership!!");
+  }
+}
+```
+
+Now we can clearly see whats wrong with our approach. We have duplicated switch statements. Our example is really simple, but the real world application will have complex logic for these calculations.
+
+The first thought to solve this would be to use inheritance and introduce `BronzeCustomer`, `SilverCustomer` and `GoldCustomer` which will extend abstract `Customer`. Each of these classes will implement their version of `getMonthlyPrice` and `getPointsEarned`. But inheritance will not work in our case as the membership level might change in runtime after the object creation. What I mean by this is a `Customer` can be upgraded or downgraded to other membership level anytime.
+
+We can solve this problem by using [State Pattern](https://en.wikipedia.org/wiki/State_pattern). We will begin refactoring by introducing `Member` interface and delegate the functionality of price and membership points calculation to it. We will then create `BronzeMember`, `SilverMember` and `GoldMember` which will implement `Member` interface.
+
+```markup--code markup--pre-code
+public interface Member {
+  double getMonthlyPrice();
+  double getPointsEarned(double amountSpent);
+}
+
+class BronzeMember implements Member {
+  public double getMonthlyPrice() {
+    return 10;
+  }
+
+  public double getPointsEarned(double amountSpent) {
+    return amountSpent * 1;
+  }
+}
+
+class SilverMember implements Member {
+  public double getMonthlyPrice() {
+    return 20;
+  }
+
+  public double getPointsEarned(double amountSpent) {
+    return amountSpent * 2;
+  }
+}
+
+class GoldMember implements Member {
+  public double getMonthlyPrice() {
+    return 30;
+  }
+
+  public double getPointsEarned(double amountSpent) {
+    return amountSpent * 3;
+  }
+}
+```
+
+Next we will update `Customer` class to use `Member` interface. We have introduced a private property `member`. `Customer` delegates the work of calculation to its `member` instance. When a membership is set, the `member` instance is also updated based on the membership type. The constructor is updated to use the `setMembership` method. This is how our final `Customer` class looks like.
+
+```markup--code markup--pre-code
+public class Customer {
+
+  public enum Membership {
+  	Bronze, Silver, Gold
+  }
+
+  private Membership membership;
+  private Member member;
+
+  public Customer(Membership membership) {
+  	this.setMembership(membership);
+  }
+
+  public void setMembership(Membership membership) {
+    this.membership = membership;
+
+    switch(membership) {
+      case Bronze:
+      	this.member = new BronzeMember();
+      	break;
+      case Silver:
+      	this.member = new SilverMember();
+      	break;
+      case Gold:
+      	this.member = new GoldMember();
+      	break;
+      default:
+      	throw new IllegalArgumentException("Invalid membership!!");
+    }
+  }
+
+  public Membership getMembership() {
+    return membership;
+  }
+
+  public double getMonthlyPrice() {
+    return this.member.getMonthlyPrice();
+  }
+
+  public double getPointsEarned(double amountSpent) {
+  	return this.member.getPointsEarned(amountSpent);
+  }
+}
+```
+
+We have successfully used polymorphism to refactor the switch statements in the `Customer` class. All the complex logic of calculating membership cost and points is delegated to respective classes. When a new membership level is added, we can simply update `setMembership` method to support it. Above all, none of the client classes using `Customer` will notice that the class has been changed and continue to work as before.

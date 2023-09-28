@@ -1,0 +1,59 @@
+---
+title: Vim style copy paste in Tmux
+description: Tmux is a terminal multiplexer which allows us to create and manage multiple terminal windows. In this post we will configure tmux to have vim style copy and paste.
+date: "2017-11-25"
+---
+
+![](https://cdn-images-1.medium.com/max/800/0*he1xTmC7Jx6G-GPm.)
+
+[Tmux](https://github.com/tmux/tmux) is a terminal multiplexer which allows us to create and manage multiple terminal windows. In this post we will configure tmux to have vim style copy and paste.
+
+Tmux configuration file is located at `~/.tmux.conf`. Lets add following configuration in it.
+
+```markup--code markup--pre-code
+set-window-option -g mode-keys vi
+bind-key -T copy-mode-vi 'v' send-keys -X begin-selection
+bind-key -T copy-mode-vi 'y' send-keys -X copy-selection-and-cancel
+bind-key p paste-buffer
+```
+
+To reload updated configuration we will run the following command `tmux source-file ~/.tmux.conf` in terminal. This will apply the newly updated configuration.
+
+After the configuration is applied, we can press `Ctrl+a v` to enter visual mode in tmux and make selection. `Ctrl+a y` to copy selection and `Ctrl+a p` to paste the selection.
+
+The above configuration will work on most operating system, however we will need to modify it a bit to get it working in osx. There is a bug in osx which prevents tmux from sending the copied output to the clipboard. This bug was fixed in `el capitan` however was regressed on `sierra` again. A small utility called `reattach-to-user-namespace` fixes this issue.
+
+Lets install it by running `brew install reattach-to-user-namespace` and add the following configuration in `~/tmux.conf`.
+
+```markup--code markup--pre-code
+set -g default-command "reattach-to-user-namespace -l ${SHELL}"
+```
+
+```markup--code markup--pre-code
+bind-key -T copy-mode-vi 'y' send-keys -X copy-pipe-and-cancel 'reattach-to-user-namespace pbcopy'
+```
+
+The above configuration will pipe tmux yanked contents to `pbcopy` command in osx. `pbcopy` command copies given contents to the osx clipboard.
+
+I have a central [dotfiles](http://github.com/adikari/dotfiles) which I use across multiple machines and operating system. At work I work on centos and my personal laptop run osx. So lets update the above configuration so it works on both.
+
+```markup--code markup--pre-code
+set-window-option -g mode-keys vi
+bind-key -T copy-mode-vi 'v' send-keys -X begin-selection
+bind-key -T copy-mode-vi 'y' send-keys -X copy-selection-and-cancel
+bind-key p paste-buffer
+
+if-shell 'test "$(uname)" = "Darwin"' 'source ~/.tmux-osx.conf'
+```
+
+The only change here is that if the operating system is osx, we source osx specific configuration called `~/.tmux-osx.conf`.
+
+```markup--code markup--pre-code
+set -g default-command "reattach-to-user-namespace -l ${SHELL}"
+```
+
+```markup--code markup--pre-code
+bind-key -T copy-mode-vi 'y' send-keys -X copy-pipe-and-cancel 'reattach-to-user-namespace pbcopy'
+```
+
+If you are interested, my full dotfiles configuration can be found [here](https://github.com/adikari/dotfiles).

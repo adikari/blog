@@ -1,0 +1,53 @@
+# Configuration Management for ServerLess Application in AWS
+
+What does this mean?
+
+* * *
+
+### Configuration Management for ServerLess Application in AWS
+
+- What does this mean?
+- What are potential ways we can solve this
+- How do we automate the process
+- How do we do this in ACG. Env Variables / Ansible / Oprah
+
+1. History?
+2. Evolution?
+
+**Background**
+
+Usage of configuration in an application. Why and How?
+
+- Keep configuration and business logic separate
+- Secrets should be encrypted — Using KMS requires effort
+
+Potential ways to manage configuration in lambda
+
+1. Env variables — Pros / cons
+2. SSM — Pros /cons
+3. S3 Bucket — Pros / cons
+
+Hard to manage or deploy secrets — Oprah will help
+
+How do we integrate the process in CI / CD
+
+**Problems**
+
+Rate limiting
+
+Encryption / decryption is hard and differs based on provider
+
+Need separate configuration across different environments
+
+Versioning
+
+Integration with Serverless Framework
+
+**Reference**
+
+https://www.concurrencylabs.com/blog/configure-your-lambda-function-like-a-champ-sail-smoothly/
+
+[View original.](https://medium.com/p/218d8b5a341e)
+
+Exported from [Medium](https://medium.com) on September 26, 2023.
+

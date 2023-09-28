@@ -1,0 +1,243 @@
+---
+title: Setting up Laravel with Docker - Part 1
+description: Laravel is by far one of the most popular PHP framework. In this post we will set up laravel application using Docker. 
+date: "2017-12-06"
+---
+
+![](https://cdn-images-1.medium.com/max/800/0*nWn3OyzzGH1jbyhg.)
+
+[Laravel](https://laravel.com/) is one of the most popular PHP framework available right now. In this post we will set up laravel application using [Docker](https://www.docker.com/). Docker enables independence between software application and the infrastructure by enabling containerization of the platform.
+
+Docker is available on most of the operating systems. Download and install the appropriate version of docker for your operating system from [Docker Store](https://store.docker.com/search?offering=community&type=edition). Verify the installation by going into the terminal and by typing `docker -v`. This should give you the version of docker installed in your computer.
+
+```markup--code markup--pre-code
+Docker version 17.09.0-ce, build afdb6d4
+```
+
+Our project structure will look as follows. Application will live inside `app` folder and docker related files will live inside `docker` folder.
+
+```markup--code markup--pre-code
++-- laravel
+|   +-- app
+|   +-- docker
+|   |   +-- Dockerfile
+|   |   +-- supervisord.conf
+|   |   +-- default
+```
+
+Create the directory structure by typing following command in the terminal.
+
+```markup--code markup--pre-code
+cd ~
+mkdir -p laravel/app laravel/docker
+touch laravel/docker/Dockerfile
+```
+
+### Building docker container
+
+`Dockerfile` defines all the commands that will run in the container to assemble the container image. Add the following code in `Dockerfile`.
+
+```markup--code markup--pre-code u-paddingRight0 u-marginRight0
+FROM php:7.0-fpm
+
+LABEL maintainer="Subash Adhikari <me@subash.com.au>"
+
+RUN apt-get update \
+    && apt-get install -y nginx curl zip unzip git supervisor sqlite3 \
+    && php -r "readfile('http://getcomposer.org/installer');" | \
+      php -- --install-dir=/usr/bin/ --filename=composer \
+    && echo "daemon off;" >> /etc/nginx/nginx.conf \
+    && ln -sf /dev/stdout /var/log/nginx/access.log \
+    && ln -sf /dev/stderr /var/log/nginx/error.log \
+    && apt-get -y autoremove && apt-get clean \
+    && rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/www/html/*
+
+COPY default /etc/nginx/sites-available/default
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+
+EXPOSE 80
+
+CMD ["/usr/bin/supervisord"]
+```
+
+Don’t be overwhelmed by what’s happening here. We will break down `Dockerfile` step by step. At the end of this section, you will have clear understanding of each line of code.
+
+We are using [php-fpm7](https://hub.docker.com/_/php/) docker image as our base image for the container.
+
+```markup--code markup--pre-code
+FROM php:7.0-fpm
+```
+
+Here we are adding meta-data to the image which specifies the maintainer of the image. Replace it with your own details.
+
+```markup--code markup--pre-code u-paddingRight0 u-marginRight0
+LABEL maintainer="Subash Adhikari <[email protected]>"
+```
+
+Docker caches each docker command when the image is being built. Docker will not run the command again if it is unchanged in the next run. Commands that are not likely to change often should be grouped together so the subsequent builds are faster.
+
+`RUN` command runs the specified commands in the container while building it. Lets breakdown the `RUN` command.
+
+We begin by updating the `apt` repositories and then install dependencies required by `Laravel` application.
+
+```markup--code markup--pre-code
+apt-get update \
+&& apt-get install -y nginx curl zip unzip git supervisor sqlite3 \
+```
+
+Next, we install composer. It is required to install `Laravel` and manage its `PHP` dependencies.
+
+```markup--code markup--pre-code
+&& php -r "readfile('http://getcomposer.org/installer');" | \
+php -- --install-dir=/usr/bin/ --filename=composer \
+```
+
+`Nginx` by default runs as a daemon in the background. We disable it so we can run it using [supervisord](http://supervisord.org/).
+
+```markup--code markup--pre-code
+&& echo "daemon off;" >> /etc/nginx/nginx.conf \
+```
+
+We create symlink of nginx access and error logs to stdout and stderror to access it from docker.
+
+```markup--code markup--pre-code
+&& ln -sf /dev/stdout /var/log/nginx/access.log \
+&& ln -sf /dev/stderr /var/log/nginx/error.log \
+```
+
+Finally we cleanup the stuff that we don’t need. This is important to keep the size of image small.
+
+```markup--code markup--pre-code
+&& apt-get -y autoremove && apt-get clean \
+&& rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/* /var/www/html/*
+```
+
+`COPY` command copies the local file into the container to specified path. We are copying template for `nginx` and `supervisord` configuration into the container.
+
+```markup--code markup--pre-code
+COPY default /etc/nginx/sites-available/default
+COPY supervisord.conf /etc/supervisor/conf.d/supervisord.conf
+```
+
+We then instruct docker that the container should listen on port 80 during the runtime.
+
+```markup--code markup--pre-code
+EXPOSE 80
+```
+
+Finally we specify the default command to run when the container starts.
+
+```markup--code markup--pre-code
+CMD ["/usr/bin/supervisord"]
+```
+
+Following is the configuration for `nginx` and `supervisord`.
+
+Create a file called `~/docker/laravel/default` and add the following nginx configuration in it.
+
+**Nginx config**
+
+```markup--code markup--pre-code
+server {
+  root /var/www/html/public;
+
+  index index.html index.htm index.php;
+
+  server_name _;
+  charset utf-8;
+
+  location = /favicon.ico { log_not_found off; access_log off; }
+  location = /robots.txt { log_not_found off; access_log off; }
+
+  location / {
+    try_files $uri $uri/ /index.php$is_args$args;
+  }
+
+  location ~ \.php$ {
+    include snippets/fastcgi-php.conf;
+    fastcgi_pass 127.0.0.1:9000;
+  }
+
+  error_page 404 /index.php;
+
+  location ~ /\.ht {
+    deny all;
+  }
+}
+```
+
+**supervisord config**
+
+Create another file called `~/laravel/docker/supervisord.conf` and add the following configuration in it.
+
+```markup--code markup--pre-code u-paddingRight0 u-marginRight0
+[supervisord]
+nodaemon=true
+
+[program:nginx]
+command=nginx
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+
+[program:php-fpm]
+command=php-fpm
+stdout_logfile=/dev/stdout
+stdout_logfile_maxbytes=0
+stderr_logfile=/dev/stderr
+stderr_logfile_maxbytes=0
+```
+
+### Building the image
+
+Now that our `Dockerfile` is ready, lets build the image. We use `docker build` command to build the image from `Dockerfile`.
+
+```markup--code markup--pre-code
+docker build -t subashcom/laravel ~/laravel/docker
+```
+
+We then tag the image by using `-t` flag. `subashcom` is the name-space of the image and `laravel` is the name. You can change it to whatever you want. The last parameter is path to directory that contains `Dockerfile`.
+
+We can verify the image is build correctly by listing all images using `docker images` command.
+
+### Installing laravel
+
+As our laravel docker container is ready now, next we will install laravel by running the following command.
+
+```markup--code markup--pre-code
+docker run -it --rm \
+    -w /var/www \
+    -v ~/laravel/app:/var/www/html \
+    subashcom/laravel \
+    composer create-project --prefer-dist laravel/laravel html
+```
+
+`-it` flag interactively runs the container. `--rm` command removes the container once the command finishes executing. `-w` is the working directory for the command that is being ran. We mount the app directory to `/var/www/html` directory inside the container. `subashcom/laravel` specifies the image we want to run. The command after the image name is the command we want to run inside the container in the specified working directory. Finally the command that follows image name installs laravel application in html directory inside the container.
+
+### Running the application
+
+At this point we have installed `Laravel` application inside our docker container. Next we will run the application and access it via web browser. Notice that we are not passing any command after the image name. This will run the default command that we specified in the docker file.
+
+We are sharing port `80` and `9000` of container with the host machine. Nginx serves application at port 80 and 9000 is used by php-fpm. `-d` flag runs the docker container in detached mode in the background so it does not block the terminal window.
+
+```markup--code markup--pre-code
+docker run -d --rm \
+    --name=laravel
+    -p 80:80 -p 9000:9000
+    -w /var/www \
+    -v ~/laravel/app:/var/www/html \
+    subashcom/laravel
+```
+
+Now the site can be accessed by browsing to `localhost` or `127.0.0.1` in the web browser. The running container can be stopped by typing `docker stop laravel`.
+
+### Conclusion
+
+We have installed the Laravel application in a dockerized container which can be easily shipped around. The docker commands that we used were quite large and complex. This can be simplified by using [docker-compose](https://docs.docker.com/compose/). In part 2 of this series we will use `docker-compose` to build the container and update the application to use `redis` and `mysql`.
+
+### Related Posts
+
+[Setting up laravel with docker: Part 2](https://subash.com.au/setting-up-laravel-with-docker-part-2/)
+
+[Setting up laravel with docker: Part 3](https://subash.com.au/setting-up-laravel-with-docker-part-3/)
